@@ -41,7 +41,7 @@ button{cursor:pointer}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:15px;margin-bottom:31px}
 .date-label{font-size:11px;color:var(--muted);font-weight:750;letter-spacing:1.4px;text-transform:uppercase}
 h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.2px;margin:7px 0 0;line-height:1.2}
-.top-actions{display:flex;align-items:center;gap:10px}
+.top-actions{display:flex;align-items:center;gap:10px}.auth-area{display:flex;align-items:center;gap:8px}.auth-status{font-size:10px;color:var(--muted);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.auth-button{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:11px;padding:11px 13px;font-size:11px;font-weight:750;white-space:nowrap}.auth-button:hover{border-color:#b7adff;color:var(--purple)}
 .search{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:var(--muted);width:190px}
 .search input{border:0;outline:0;width:100%;font-size:12px;background:transparent;color:var(--ink)}
 .icon-btn{border:1px solid var(--line);background:#fff;border-radius:12px;width:42px;height:42px;color:#777b91;font-size:17px}
@@ -157,7 +157,7 @@ h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.2px;margin:7px 0 0;line-heig
     </div>
     <div class="sidebar-bottom">
       <div class="streak-card"><div class="eyebrow">Your momentum</div><div class="streak-number"><span id="streakNumber">0</span> day streak ✨</div><p>Small steps, repeated daily, create big changes.</p></div>
-      <div class="profile"><div class="avatar">A</div><div><strong>Your workspace</strong><span>One day at a time</span></div></div>
+      <div class="profile"><div class="avatar" id="profileAvatar">A</div><div><strong id="profileName">Your workspace</strong><span id="profileEmail">One day at a time</span></div></div>
     </div>
   </aside>
 
@@ -168,6 +168,7 @@ h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.2px;margin:7px 0 0;line-heig
         <div><div class="date-label" id="todayLabel">YOUR DAY, AT A GLANCE</div><h1>Make today count<span style="color:var(--purple)">.</span></h1></div>
       </div>
       <div class="top-actions">
+        <div class="auth-area"><span class="auth-status" id="authStatus">Local mode</span><button class="auth-button" id="authButton">Continue with Google</button></div>
         <label class="search"><span>⌕</span><input id="searchInput" placeholder="Find a task..." aria-label="Search tasks"></label>
         <button class="icon-btn" id="jumpNotes" aria-label="Jump to notes">✎</button>
         <button class="primary" id="addTaskBtn">＋ Add task</button>
@@ -230,7 +231,7 @@ h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.2px;margin:7px 0 0;line-heig
         </section>
       </div>
     </div>
-    <div class="footer">DAYFLOW · YOUR PERSONAL SPACE · YOUR DATA STAYS IN THIS BROWSER</div>
+    <div class="footer" id="appFooter">DAYFLOW · YOUR PERSONAL SPACE · SIGN IN TO SYNC YOUR DATA</div>
   </main>
 </div>
 
@@ -245,7 +246,13 @@ h1{font-size:clamp(26px,3vw,34px);letter-spacing:-1.2px;margin:7px 0 0;line-heig
 </div>
 <div class="toast" id="toast" role="status"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+// The Supabase publishable key is safe to use in browser code. Never add a service_role key or Google Client Secret here.
+const SUPABASE_URL = 'https://tamtnugcnbyqqjxqzmab.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_JwYeiYNlKWBgz4MUsL1qeg_wTphAYVI';
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let currentUser = null, cloudReady = false, syncTimer = null, isApplyingCloudData = false;
 const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 const STORE = 'dayflow-v1';
@@ -275,7 +282,74 @@ if (data.date !== todayKey()) {
 }
 data.tasks ||= []; data.habits ||= defaultData().habits; data.history ||= {}; data.focusMinutes ||= 0;
 let filter = 'all', searchTerm = '', focusLength = 25, remaining = 25*60, timer = null, running = false;
-function save(){localStorage.setItem(STORE,JSON.stringify(data));}
+function save(){
+  localStorage.setItem(STORE,JSON.stringify(data));
+  if(currentUser && cloudReady && !isApplyingCloudData){
+    clearTimeout(syncTimer);
+    $('#saveStatus').textContent='Saving to your account…';
+    syncTimer=setTimeout(syncToCloud,650);
+  }
+}
+async function syncToCloud(){
+  if(!currentUser || !cloudReady) return;
+  const { error } = await supabaseClient.from('dayflow_data').upsert({user_id:currentUser.id, data, updated_at:new Date().toISOString()},{onConflict:'user_id'});
+  if(error){console.error('Dayflow cloud sync error:',error);$('#saveStatus').textContent='Saved on this device · cloud sync issue';toast('Cloud sync failed. Check the setup instructions.');}
+  else $('#saveStatus').textContent='Synced to your account';
+}
+async function loadUserData(user){
+  cloudReady=false;
+  $('#authStatus').textContent='Loading account…';
+  const {data:row,error}=await supabaseClient.from('dayflow_data').select('data').eq('user_id',user.id).maybeSingle();
+  if(error){console.error('Dayflow cloud load error:',error);$('#authStatus').textContent='Setup needed';toast('Sign-in worked, but database setup is needed.');return;}
+  if(row && row.data){
+    isApplyingCloudData=true;
+    data=row.data;
+    if(data.date!==todayKey()){
+      data.date=todayKey();data.tasks=(data.tasks||[]).map(t=>({...t,done:false}));data.habits=(data.habits||[]).map(h=>({...h,done:false}));data.focusMinutes=0;
+    }
+    data.tasks ||= [];data.habits ||= defaultData().habits;data.history ||= {};data.focusMinutes ||= 0;
+    localStorage.setItem(STORE,JSON.stringify(data));renderAll();isApplyingCloudData=false;
+  } else {
+    // First sign-in: keep the current browser data and create this user's cloud record.
+    cloudReady=true;
+    await syncToCloud();
+  }
+  cloudReady=true;
+  $('#authStatus').textContent='Synced';
+  $('#authButton').textContent='Sign out';
+  $('#profileName').textContent=user.user_metadata?.full_name || user.user_metadata?.name || 'Your workspace';
+  $('#profileEmail').textContent=user.email || 'Signed in with Google';
+  $('#profileAvatar').textContent=($('#profileName').textContent.trim()[0]||'A').toUpperCase();
+  $('#appFooter').textContent='DAYFLOW · YOUR PERSONAL SPACE · SYNCED TO YOUR ACCOUNT';
+  $('#saveStatus').textContent='Synced to your account';
+}
+async function handleAuthButton(){
+  if(currentUser){
+    const {error}=await supabaseClient.auth.signOut();
+    if(error){toast('Could not sign out. Please try again.');return;}
+    return;
+  }
+  const {error}=await supabaseClient.auth.signInWithOAuth({provider:'google',options:{redirectTo:window.location.origin}});
+  if(error) toast('Google sign-in failed: '+error.message);
+}
+$('#authButton').addEventListener('click',handleAuthButton);
+supabaseClient.auth.onAuthStateChange((event,session)=>{
+  // Defer database calls out of the auth callback to avoid locking auth operations.
+  setTimeout(async()=>{
+    const user=session?.user||null;
+    if(user){currentUser=user;await loadUserData(user);}
+    else if(event==='SIGNED_OUT'){
+      currentUser=null;cloudReady=false;clearTimeout(syncTimer);
+      data=defaultData();localStorage.removeItem(STORE);renderAll();
+      $('#authStatus').textContent='Local mode';$('#authButton').textContent='Continue with Google';
+      $('#profileName').textContent='Your workspace';$('#profileEmail').textContent='One day at a time';$('#profileAvatar').textContent='A';
+      $('#appFooter').textContent='DAYFLOW · YOUR PERSONAL SPACE · SIGN IN TO SYNC YOUR DATA';
+      $('#saveStatus').textContent='Saved automatically on this device';
+    } else {
+      $('#authStatus').textContent='Local mode';
+    }
+  },0);
+});
 function toast(message){const el=$('#toast');el.textContent=message;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2300)}
 function categoryClass(c){return c==='Work'?'tag-work':c==='Personal'?'tag-personal':'tag-learning'}
 function renderTasks(){
@@ -323,7 +397,7 @@ $('#taskList').addEventListener('click',e=>{const btn=e.target.closest('button[d
 $('#habitList').addEventListener('click',e=>{const btn=e.target.closest('[data-habit]');if(!btn)return;const h=data.habits.find(x=>x.id===btn.dataset.habit);h.done=!h.done;if(h.done){data.history[todayKey()]=true;data.streak=Math.max(1,data.streak||0)}save();renderAll();toast(h.done?'Habit checked off 🌱':'Habit unchecked')});
 $('#taskFilters').addEventListener('click',e=>{const btn=e.target.closest('button[data-filter]');if(!btn)return;filter=btn.dataset.filter;$$('#taskFilters button').forEach(b=>b.classList.toggle('active',b===btn));renderTasks()});
 $('#searchInput').addEventListener('input',e=>{searchTerm=e.target.value.trim().toLowerCase();renderTasks()});
-$('#notesInput').addEventListener('input',e=>{data.notes=e.target.value;save();$('#charCount').textContent=e.target.value.length+' characters';$('#saveStatus').textContent='Saved just now';clearTimeout(window.noteStatusTimer);window.noteStatusTimer=setTimeout(()=>$('#saveStatus').textContent='Saved automatically on this device',1500)});
+$('#notesInput').addEventListener('input',e=>{data.notes=e.target.value;save();$('#charCount').textContent=e.target.value.length+' characters';$('#saveStatus').textContent='Saved just now';clearTimeout(window.noteStatusTimer);window.noteStatusTimer=setTimeout(()=>$('#saveStatus').textContent=currentUser?'Synced to your account':'Saved automatically on this device',1500)});
 $('#jumpNotes').addEventListener('click',()=>$('#notes-card').scrollIntoView({behavior:'smooth',block:'center'}));
 $$('.nav button[data-target]').forEach(btn=>btn.addEventListener('click',()=>{$$('.nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');document.getElementById(btn.dataset.target).scrollIntoView({behavior:'smooth',block:'start'});$('#sidebar').classList.remove('open')}));
 $('#menuBtn').addEventListener('click',()=>$('#sidebar').classList.toggle('open'));

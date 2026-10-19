@@ -1,25 +1,45 @@
-# Dayflow
+# Dayflow — Google sign-in + cloud sync
 
-A responsive, browser-based personal productivity dashboard built with HTML, CSS, and JavaScript.
+This is the static HTML/CSS/JavaScript Dayflow app, connected to Supabase Auth and a per-user cloud data row.
+
+## 1. Database setup (required)
+
+1. Open the Supabase project used by Dayflow.
+2. Open **SQL Editor** → **New query**.
+3. Open `supabase-setup.sql` from this folder, copy all its contents into the SQL Editor, and click **Run**.
+4. Confirm the `dayflow_data` table was created under **Table Editor**.
+
+The SQL enables Row Level Security and adds policies so authenticated users can only access the row whose `user_id` matches their own account.
+
+## 2. Supabase Auth settings
+
+In **Authentication → URL Configuration**:
+
+- Site URL: `https://dayflow-gules-two.vercel.app`
+- Redirect URL allow-list: `https://dayflow-gules-two.vercel.app/**`
+
+In **Authentication → Sign In / Providers → Google**, ensure Google is enabled and the Client ID/Secret are saved. In Google Cloud, the authorized redirect URI must be:
+
+`https://tamtnugcnbyqqjxqzmab.supabase.co/auth/v1/callback`
+
+If Google OAuth is still in Testing mode, add the Google accounts you want to test under Google Auth Platform → Audience → Test users.
+
+## 3. Deploy the updated app
+
+1. Replace the `index.html` in your existing GitHub repository with this folder's `index.html`.
+2. Add `supabase-setup.sql` and this `README.md` to the repository root too.
+3. Commit and push the changes. Vercel should redeploy automatically.
+4. Open `https://dayflow-gules-two.vercel.app` and click **Continue with Google**.
+5. Sign in and test by adding a task or note, refresh the page, and confirm the data remains. Sign out and sign in again to test account separation.
+
+## Security notes
+
+- The Supabase URL and publishable key are designed for browser use. The publishable key is not a password.
+- Never put the Google Client Secret or Supabase `service_role`/secret key in `index.html` or GitHub.
+- Do not remove the RLS policies. They protect each user's cloud row.
+- This version syncs the app's tasks, habits, notes, history, streak and focus-minute state as one JSON record per account. The running focus timer itself is not synchronized.
+- Data already in a browser is copied to the cloud on the first sign-in for that browser/account if no cloud record exists yet. Once a cloud record exists, it becomes the source for that account.
 
 ## Run locally
-Open `index.html` in a browser.
 
-## Deploy publicly with GitHub + Vercel
-1. Create a **public** GitHub repository named `dayflow`.
-2. Upload `index.html` and this `README.md` to the repository root, then commit the changes.
-3. In Vercel, choose **Add New → Project**, import the `dayflow` GitHub repository, and deploy.
-4. Since this is a static HTML app, choose **Other** / no framework preset if asked. No build command or output directory is needed; leave build settings blank when Vercel permits it.
-5. Once deployment finishes, open the generated `*.vercel.app` URL and share it.
-
-## Features
-- Add, complete, delete, filter, and search tasks
-- Categorize tasks as Work, Learning, and Personal
-- Daily habit tracker
-- Focus timer with 25-minute focus and 5/15-minute break modes
-- Quick notes with automatic local saving
-- Daily progress summary and weekly calendar
-- Responsive layout for desktop and mobile
-
-## Important data note
-This first version stores each user's data in that user's browser (`localStorage`). Publishing the app makes the interface public, but it does not create accounts or cloud synchronization. Users' data stays separate in their own browsers. Clearing browser storage can remove it.
+Open `index.html` in a browser. Google OAuth redirects back to the local origin, so for local testing use a local web server and add its URL to Supabase's redirect allow-list if needed.
